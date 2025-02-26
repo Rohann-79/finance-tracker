@@ -5,14 +5,15 @@ class UserBase(BaseModel):
     username: str
     email: str
 
-class UserCreate(UserBase):
+class UserCreate(BaseModel):  # For login and signup
+    username: str
     password: str
 
 class User(UserBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # Updated from `orm_mode = True` in Pydantic V2
 
 class ExpenseBase(BaseModel):
     amount: float
@@ -26,4 +27,4 @@ class Expense(ExpenseBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # Updated from `orm_mode = True` in Pydantic V2

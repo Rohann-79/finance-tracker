@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Bar } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
+
+// Register the required components
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 const Dashboard = () => {
   const [expenses, setExpenses] = useState([]);
@@ -8,6 +12,7 @@ const Dashboard = () => {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [date, setDate] = useState('');
+  const chartRef = useRef(null);  // Ref to store the chart instance
 
   useEffect(() => {
     fetchExpenses();
@@ -25,12 +30,13 @@ const Dashboard = () => {
   const handleAddExpense = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:8000/expenses/', {
-        amount: parseFloat(amount),
-        category,
-        date,
-        user_id: 1, // Replace with the logged-in user's ID
-      });
+      const payload = {
+        amount: parseFloat(amount),  // Ensure amount is a float
+        category,  // Ensure category is a string
+        date,  // Ensure date is in YYYY-MM-DD format
+        user_id: 1,  // Replace with the logged-in user's ID
+      };
+      await axios.post('http://localhost:8000/expenses/', payload);
       fetchExpenses(); // Refresh the expenses list
       setAmount('');
       setCategory('');
@@ -42,9 +48,10 @@ const Dashboard = () => {
 
   const handlePredict = async () => {
     try {
-      const response = await axios.post('http://localhost:8000/predict/', {
-        month: new Date().getMonth() + 1,
-      });
+      const payload = {
+        month: new Date().getMonth() + 1,  // Ensure month is an integer
+      };
+      const response = await axios.post('http://localhost:8000/predict/', payload);
       setPrediction(response.data.predicted_expense);
     } catch (error) {
       console.error('Failed to predict expenses:', error);
@@ -107,7 +114,7 @@ const Dashboard = () => {
         </p>
       )}
       <div className="bg-white p-6 rounded-lg shadow-md">
-        <Bar data={data} />
+        <Bar ref={chartRef} data={data} />
       </div>
     </div>
   );

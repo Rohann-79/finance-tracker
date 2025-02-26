@@ -2,6 +2,8 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 import joblib
 import numpy as np
+import os
+import joblib
 
 class ExpensePredictor:
     def __init__(self):
@@ -26,8 +28,12 @@ class ExpensePredictor:
 
     def load_model(self):
         """Load the trained model from a file."""
-        self.model = joblib.load('expense_predictor.pkl')
-        print("Model loaded from 'expense_predictor.pkl'")
+        # Get the absolute path to the expense_predictor.pkl file
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(base_dir, 'expense_predictor.pkl')
+        
+        self.model = joblib.load(model_path)
+        print("Model loaded from:", model_path)
 
     def predict(self, month: int):
         """Predict expenses for a given month."""

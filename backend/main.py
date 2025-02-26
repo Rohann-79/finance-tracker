@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -9,12 +10,21 @@ from .ml_models import ExpensePredictor
 # FastAPI app
 app = FastAPI()
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Allow requests from this origin
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
+
 # ML model
 predictor = ExpensePredictor()
 predictor.load_model()
 
 # Security
-SECRET_KEY = "your-secret-key"
+SECRET_KEY = "Rohann@123"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -75,6 +85,7 @@ def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/expenses/", response_model=schemas.Expense)
 def create_expense(expense: schemas.ExpenseCreate, db: Session = Depends(get_db)):
+    print("Incoming payload:", expense.dict())  # Log the payload
     # Check if the user exists
     db_user = db.query(models.User).filter(models.User.id == expense.user_id).first()
     if not db_user:
