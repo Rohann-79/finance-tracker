@@ -6,6 +6,7 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from . import models, schemas, database
 from .ml_models import ExpensePredictor
+from pydantic import BaseModel
 
 # FastAPI app
 app = FastAPI()
@@ -52,10 +53,13 @@ def create_access_token(data: dict):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+# Pydantic model to handle request validation for /predict/
+class PredictRequest(BaseModel):
+    month: int
+
 # Routes
 @app.post("/users/", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # Check if username or email already exists
     db_user = db.query(models.User).filter(models.User.username == user.username).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -64,10 +68,8 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Hash the password
     hashed_password = get_password_hash(user.password)
 
-    # Create the user
     db_user = models.User(username=user.username, email=user.email, hashed_password=hashed_password)
     db.add(db_user)
     db.commit()
@@ -85,26 +87,28 @@ def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/expenses/", response_model=schemas.Expense)
 def create_expense(expense: schemas.ExpenseCreate, db: Session = Depends(get_db)):
-    print("Incoming payload:", expense.dict())  # Log the payload
-    # Check if the user exists
     db_user = db.query(models.User).filter(models.User.id == expense.user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Validate expense amount
     if expense.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
 
-    # Create the expense
     db_expense = models.Expense(amount=expense.amount, category=expense.category, date=expense.date, user_id=expense.user_id)
     db.add(db_expense)
     db.commit()
     db.refresh(db_expense)
     return db_expense
 
+@app.get("/expenses/", response_model=list[schemas.Expense])
+def get_expenses(db: Session = Depends(get_db)):
+    expenses = db.query(models.Expense).all()
+    return expenses
+
 @app.post("/predict/")
-def predict_expense(month: int):
+def predict_expense(payload: PredictRequest):
     try:
+        month = payload.month
         prediction = predictor.predict(month)
         return {"predicted_expense": prediction}
     except ValueError as e:

@@ -31,9 +31,9 @@ const Dashboard = () => {
     e.preventDefault();
     try {
       const payload = {
-        amount: parseFloat(amount),  // Ensure amount is a float
-        category,  // Ensure category is a string
-        date,  // Ensure date is in YYYY-MM-DD format
+        amount: parseFloat(amount),
+        category,
+        date,
         user_id: 1,  // Replace with the logged-in user's ID
       };
       await axios.post('http://localhost:8000/expenses/', payload);
@@ -49,7 +49,7 @@ const Dashboard = () => {
   const handlePredict = async () => {
     try {
       const payload = {
-        month: new Date().getMonth() + 1,  // Ensure month is an integer
+        month: new Date().getMonth() + 1,  // Send the current month as an integer
       };
       const response = await axios.post('http://localhost:8000/predict/', payload);
       setPrediction(response.data.predicted_expense);
