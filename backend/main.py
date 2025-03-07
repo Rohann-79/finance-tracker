@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -10,7 +10,7 @@ import database
 from ml_models import ExpensePredictor
 from transaction_analyzer import TransactionAnalyzer
 from plaid_service import PlaidService, client as plaid_client
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
 # FastAPI app
@@ -43,6 +43,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Authentication dependency
+async def get_current_user(
+    authorization: str = Header(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        token = authorization.split(" ")[1]
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: int = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    
+    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
 
 # Helper functions
 def verify_password(plain_password, hashed_password):
@@ -87,7 +106,7 @@ def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
     if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
 
-    access_token = create_access_token(data={"sub": db_user.username})
+    access_token = create_access_token(data={"sub": str(db_user.id)})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/expenses/", response_model=schemas.Expense)
@@ -122,7 +141,11 @@ def predict_expense(payload: PredictRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/bank-accounts/", response_model=schemas.BankAccount)
-def create_bank_account(account: schemas.BankAccountCreate, db: Session = Depends(get_db)):
+def create_bank_account(
+    account: schemas.BankAccountCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     db_account = models.BankAccount(**account.dict())
     db.add(db_account)
     db.commit()
@@ -130,13 +153,25 @@ def create_bank_account(account: schemas.BankAccountCreate, db: Session = Depend
     return db_account
 
 @app.get("/bank-accounts/{user_id}", response_model=List[schemas.BankAccount])
-def get_user_bank_accounts(user_id: int, db: Session = Depends(get_db)):
+def get_user_bank_accounts(
+    user_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access these accounts")
     accounts = db.query(models.BankAccount).filter(models.BankAccount.user_id == user_id).all()
     return accounts
 
 @app.post("/transactions/", response_model=schemas.BankTransaction)
-def create_transaction(transaction: schemas.BankTransactionCreate, db: Session = Depends(get_db)):
-    # Verify the bank account exists and belongs to the user
+def create_transaction(
+    transaction: schemas.BankTransactionCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.id != transaction.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to create transactions for this user")
+    
     account = db.query(models.BankAccount).filter(
         models.BankAccount.id == transaction.account_id,
         models.BankAccount.user_id == transaction.user_id
@@ -145,10 +180,14 @@ def create_transaction(transaction: schemas.BankTransactionCreate, db: Session =
     if not account:
         raise HTTPException(status_code=404, detail="Bank account not found or doesn't belong to the user")
 
-    db_transaction = models.BankTransaction(**transaction.dict())
+    # Convert the transaction data to dict and update the category and importance to use enum values
+    transaction_data = transaction.dict()
+    transaction_data['category'] = models.TransactionCategory[transaction_data['category'].upper()]
+    transaction_data['importance'] = models.TransactionImportance[transaction_data['importance'].upper()]
+
+    db_transaction = models.BankTransaction(**transaction_data)
     db.add(db_transaction)
     
-    # Update account balance
     account.balance += transaction.amount
     
     db.commit()
@@ -156,29 +195,59 @@ def create_transaction(transaction: schemas.BankTransactionCreate, db: Session =
     return db_transaction
 
 @app.get("/transactions/{user_id}", response_model=List[schemas.BankTransaction])
-def get_user_transactions(user_id: int, db: Session = Depends(get_db)):
+def get_user_transactions(
+    user_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access these transactions")
     transactions = db.query(models.BankTransaction).filter(
         models.BankTransaction.user_id == user_id
     ).order_by(models.BankTransaction.date.desc()).all()
     return transactions
 
 @app.get("/analysis/spending-patterns/{user_id}", response_model=schemas.SpendingAnalysis)
-def get_spending_patterns(user_id: int, db: Session = Depends(get_db)):
+def get_spending_patterns(
+    user_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this analysis")
     analyzer = TransactionAnalyzer(db, user_id)
     return analyzer.get_spending_patterns()
 
 @app.get("/analysis/wasteful-spending/{user_id}", response_model=List[schemas.WastefulTransaction])
-def get_wasteful_spending(user_id: int, db: Session = Depends(get_db)):
+def get_wasteful_spending(
+    user_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this analysis")
     analyzer = TransactionAnalyzer(db, user_id)
     return analyzer.identify_wasteful_spending()
 
 @app.get("/analysis/savings-opportunities/{user_id}", response_model=List[schemas.SavingsOpportunity])
-def get_savings_opportunities(user_id: int, db: Session = Depends(get_db)):
+def get_savings_opportunities(
+    user_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this analysis")
     analyzer = TransactionAnalyzer(db, user_id)
     return analyzer.get_savings_opportunities()
 
 @app.get("/analysis/monthly-summary/{user_id}", response_model=schemas.MonthlySummary)
-def get_monthly_summary(user_id: int, db: Session = Depends(get_db)):
+def get_monthly_summary(
+    user_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this analysis")
     analyzer = TransactionAnalyzer(db, user_id)
     return analyzer.get_monthly_summary()
 
@@ -225,3 +294,7 @@ async def fetch_transactions(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/users/me", response_model=schemas.User)
+async def get_current_user_info(current_user: models.User = Depends(get_current_user)):
+    return current_user
