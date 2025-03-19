@@ -23,6 +23,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # ML model
@@ -77,9 +79,13 @@ def create_access_token(data: dict):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-# Pydantic model to handle request validation for /predict/
+# Pydantic models
 class PredictRequest(BaseModel):
     month: int
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 # Routes
 @app.post("/users/", response_model=schemas.User)
@@ -101,7 +107,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @app.post("/login/")
-def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
+def login(user: LoginRequest, db: Session = Depends(get_db)):
     db_user = db.query(models.User).filter(models.User.username == user.username).first()
     if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
@@ -146,6 +152,9 @@ def create_bank_account(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    if current_user.id != account.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to create account for this user")
+    
     db_account = models.BankAccount(**account.dict())
     db.add(db_account)
     db.commit()
@@ -158,10 +167,14 @@ def get_user_bank_accounts(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to access these accounts")
-    accounts = db.query(models.BankAccount).filter(models.BankAccount.user_id == user_id).all()
-    return accounts
+    try:
+        if current_user.id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access these accounts")
+        
+        accounts = db.query(models.BankAccount).filter(models.BankAccount.user_id == user_id).all()
+        return accounts
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/transactions/", response_model=schemas.BankTransaction)
 def create_transaction(
@@ -253,8 +266,15 @@ def get_monthly_summary(
 
 # Plaid routes
 @app.post("/plaid/create_link_token")
-async def create_link_token(user_id: int):
+async def create_link_token(
+    user_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     try:
+        if current_user.id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to create link token for this user")
+            
         configs = {
             'user': {
                 'client_user_id': str(user_id)
@@ -273,9 +293,13 @@ async def create_link_token(user_id: int):
 async def exchange_public_token(
     public_token: str,
     user_id: int,
+    current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     try:
+        if current_user.id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to exchange token for this user")
+            
         plaid_service = PlaidService(db)
         access_token = await plaid_service.exchange_token(public_token, user_id)
         return {"access_token": access_token}
@@ -286,9 +310,13 @@ async def exchange_public_token(
 async def fetch_transactions(
     access_token: str,
     user_id: int,
+    current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     try:
+        if current_user.id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to fetch transactions for this user")
+            
         plaid_service = PlaidService(db)
         result = await plaid_service.fetch_transactions(access_token, user_id)
         return result

@@ -126,9 +126,9 @@ class TransactionAnalyzer:
         )
 
         total_spent = sum(t.amount for t in transactions)
-        essential_spent = sum(t.amount for t in transactions if t.category == TransactionCategory.ESSENTIAL)
-        savings = sum(t.amount for t in transactions if t.category == TransactionCategory.SAVINGS)
-        wasteful_spent = sum(t.amount for t in transactions if t.importance == TransactionImportance.WASTEFUL)
+        essential_spent = sum(t.amount for t in transactions if t.category == models.TransactionCategory.ESSENTIAL)
+        savings = sum(t.amount for t in transactions if t.category == models.TransactionCategory.SAVINGS)
+        wasteful_spent = sum(t.amount for t in transactions if t.importance == models.TransactionImportance.WASTEFUL)
 
         return {
             'total_spent': float(total_spent),

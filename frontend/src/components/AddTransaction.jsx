@@ -30,7 +30,7 @@ const AddTransaction = () => {
                 setTransaction(prev => ({ ...prev, account_id: data[0].id }));
             }
         } catch (err) {
-            setError('Failed to fetch bank accounts');
+            setError(err.response?.data?.detail || 'Failed to fetch bank accounts');
         }
     };
 
@@ -61,7 +61,7 @@ const AddTransaction = () => {
                 notes: ''
             });
         } catch (err) {
-            setError('Failed to add transaction');
+            setError(err.response?.data?.detail || 'Failed to add transaction');
         }
     };
 

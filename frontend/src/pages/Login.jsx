@@ -18,11 +18,16 @@ const Login = () => {
         username,
         password,
       });
-      login(response.data.access_token);
-      navigate('/dashboard');
+      
+      if (response.data.access_token) {
+        login(response.data.access_token);
+        navigate('/dashboard');
+      } else {
+        setError('Invalid response from server');
+      }
     } catch (error) {
-      setError(error.response?.data?.detail || 'Login failed. Please try again.');
       console.error('Login failed:', error);
+      setError(error.response?.data?.detail || 'Login failed. Please try again.');
     }
   };
 

@@ -9,6 +9,7 @@ class UserBase(BaseModel):
 
 class UserCreate(BaseModel):  # For login and signup
     username: str
+    email: str
     password: str
 
 class User(UserBase):
@@ -107,3 +108,6 @@ class MonthlySummary(BaseModel):
     wasteful_spending: float
     savings_rate: float
     essential_rate: float
+
+    class Config:
+        from_attributes = True
